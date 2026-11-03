@@ -1,0 +1,14 @@
+# Python Virtual Environment
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment Variables & Secrets
+.env
+.env.local
+
+# SQLite Database (can be regenerated or kept local)
+*.sqlite3
+# Keep tea_lover.db untracked so development DB is safe
+tea_lover.db

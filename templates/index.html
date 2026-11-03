@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tea Lover – Specialized Cafe & Beverage AI Assistant</title>
+    
+    <!-- Google Fonts: Playfair Display (Luxury Cafe Headings) + Plus Jakarta Sans (Crisp Modern UI) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Marked.js for rich markdown rendering (lists, bold recipes, headers) -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <!-- DOMPurify to guarantee safe HTML rendering without script injection -->
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+
+    <!-- Custom Cafe Styling -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=2">
+</head>
+<body>
+    <div class="cafe-app">
+        <!-- =================================================================
+             1. CAFE SIDEBAR (Chat History & Brand Navigation)
+             ================================================================= -->
+        <aside class="cafe-sidebar" id="sidebar">
+            <div class="sidebar-brand">
+                <div class="brand-logo-wrap">
+                    <span class="brand-icon">☕</span>
+                    <div>
+                        <h2 class="brand-title">Tea Lover</h2>
+                        <span class="brand-badge">Cafe AI</span>
+                    </div>
+                </div>
+                <button class="sidebar-close-btn" id="sidebarCloseBtn" aria-label="Close Sidebar">✕</button>
+            </div>
+
+            <!-- New Chat / Fresh Brew Button -->
+            <button class="new-brew-btn" id="newChatBtn">
+                <span class="btn-icon">＋</span>
+                <span>Start New Brew</span>
+            </button>
+
+            <!-- Previous Conversations History List -->
+            <div class="history-section">
+                <div class="history-label">
+                    <span>Recent Conversations</span>
+                    <span class="history-count" id="historyCount">0</span>
+                </div>
+                <ul class="history-list" id="historyList">
+                    <!-- Dynamic chat items populated by script.js -->
+                </ul>
+            </div>
+
+            <!-- Sidebar Footer / Cafe Aesthetics -->
+            <div class="sidebar-footer">
+                <div class="cafe-hours">
+                    <span class="status-indicator"></span>
+                    <small>Tea Lover AI Sommelier Active</small>
+                </div>
+                <p class="sidebar-quote">"Good Food. Great Coffee. Lovely Conversations."</p>
+            </div>
+        </aside>
+
+        <!-- Overlay backdrop for mobile devices -->
+        <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+        <!-- =================================================================
+             2. MAIN CAFE STAGE (Chatroom & Interaction)
+             ================================================================= -->
+        <main class="cafe-main">
+            <!-- Header Bar -->
+            <header class="cafe-header">
+                <div class="header-left">
+                    <button class="menu-toggle-btn" id="menuToggleBtn" aria-label="Open Sidebar">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </button>
+                    <div class="active-chat-info">
+                        <span class="header-badge">🍵 Specialized Barista</span>
+                        <h1 class="active-title" id="activeChatTitle">New Brew Conversation</h1>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <button class="header-action-btn" id="headerNewBtn" title="Start fresh conversation">
+                        <span class="icon">☕</span>
+                        <span class="text">New Chat</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Scrollable Messages Window -->
+            <div class="chat-viewport" id="chatViewport">
+                <!-- Welcome Cafe Hero Screen (Shown on fresh empty chats) -->
+                <div class="welcome-hero" id="welcomeHero">
+                    <div class="hero-crest">
+                        <div class="crest-icon">🫖</div>
+                        <span class="sparkle-accent">✨</span>
+                    </div>
+                    <h2 class="hero-headline">Welcome to Tea Lover</h2>
+                    <p class="hero-subline">
+                        Your personal cafe barista, tea sommelier & pastry chef.<br>
+                        Ask me anything about brewing techniques, rich coffee roasts, authentic teas, snacks, and bakery pairings.
+                    </p>
+
+                    <!-- 4 Prescribed Suggestion Cards -->
+                    <div class="suggestions-grid">
+                        <div class="suggestion-card" onclick="useSuggestedPrompt('How do I prepare filter coffee?')">
+                            <div class="card-top">
+                                <span class="card-icon">☕</span>
+                                <span class="card-tag">Coffee Variety</span>
+                            </div>
+                            <h3>Perfect Coffee</h3>
+                            <p>How do I prepare authentic South Indian filter coffee?</p>
+                        </div>
+
+                        <div class="suggestion-card" onclick="useSuggestedPrompt('How do I make masala tea?')">
+                            <div class="card-top">
+                                <span class="card-icon">🫖</span>
+                                <span class="card-tag">Tea Variety</span>
+                            </div>
+                            <h3>Tea Recipes</h3>
+                            <p>How do I brew traditional aromatic Indian masala tea?</p>
+                        </div>
+
+                        <div class="suggestion-card" onclick="useSuggestedPrompt('Suggest five evening snacks.')">
+                            <div class="card-top">
+                                <span class="card-icon">🥐</span>
+                                <span class="card-tag">Snacks & Bakery</span>
+                            </div>
+                            <h3>Evening Snacks</h3>
+                            <p>Suggest 5 delicious savory and sweet evening snacks.</p>
+                        </div>
+
+                        <div class="suggestion-card" onclick="useSuggestedPrompt('What snacks go well with cappuccino?')">
+                            <div class="card-top">
+                                <span class="card-icon">🍰</span>
+                                <span class="card-tag">Food Pairing</span>
+                            </div>
+                            <h3>Food Pairings</h3>
+                            <p>What artisanal snacks and desserts pair best with cappuccino?</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chat Messages will be dynamically rendered here -->
+                <div class="messages-stream" id="messagesStream"></div>
+            </div>
+
+            <!-- Input Bar & Prompt Controls -->
+            <div class="cafe-input-bar">
+                <div class="input-shell">
+                    <textarea 
+                        id="messageInput" 
+                        class="chat-textarea" 
+                        placeholder="Ask about teas, coffee roasts, snacks, baking recipes..." 
+                        rows="1"
+                        maxlength="2500"
+                    ></textarea>
+                    
+                    <button class="send-action-btn" id="sendBtn" aria-label="Send Message" title="Send (Enter)">
+                        <svg viewBox="0 0 24 24" class="send-svg">
+                            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="input-disclaimer">
+                    <span>☕ Specialized exclusively in tea, coffee, snacks, desserts & cafe recipes.</span>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Application Frontend JavaScript -->
+    <script src="{{ url_for('static', filename='script.js') }}?v=2"></script>
+</body>
+</html>
