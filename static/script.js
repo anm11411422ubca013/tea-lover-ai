@@ -1,12 +1,13 @@
 /**
  * =============================================================================
- * Tea Lover – Frontend JavaScript (Fetch API + DOM + Markdown Integration)
+ * Tea Lover – Frontend JavaScript (Fetch API + DOM + Markdown + Voice + Images)
  * =============================================================================
  */
 
 // Application State
 let currentChatId = null;
 let isGeneratingResponse = false;
+const LAST_CHAT_KEY = "tea_lover_last_conversation_id";
 
 // DOM Elements Cache
 const sidebar = document.getElementById("sidebar");
@@ -23,13 +24,14 @@ const welcomeHero = document.getElementById("welcomeHero");
 const messagesStream = document.getElementById("messagesStream");
 const messageInput = document.getElementById("messageInput");
 const sendBtn = document.getElementById("sendBtn");
+const micBtn = document.getElementById("micBtn");
 
 // =============================================================================
 // 1. INITIALIZATION & EVENT LISTENERS
 // =============================================================================
 
 document.addEventListener("DOMContentLoaded", () => {
-    // Load existing conversations from SQLite
+    // Load existing conversations from SQLite & restore last active chat
     fetchChatHistory();
 
     // Auto-adjust textarea height on input
@@ -49,6 +51,9 @@ document.addEventListener("DOMContentLoaded", () => {
     menuToggleBtn.addEventListener("click", toggleSidebar);
     sidebarCloseBtn.addEventListener("click", closeSidebar);
     sidebarBackdrop.addEventListener("click", closeSidebar);
+
+    // Setup Speech-to-Text Voice Recording
+    setupVoiceRecognition();
 });
 
 // =============================================================================
@@ -62,6 +67,13 @@ async function fetchChatHistory() {
         
         if (data.chats) {
             renderHistoryList(data.chats);
+
+            // Automatically restore the last active conversation if it exists
+            const savedChatId = localStorage.getItem(LAST_CHAT_KEY);
+            const chatExists = data.chats.some(c => c.id === savedChatId);
+            if (savedChatId && chatExists && !currentChatId) {
+                loadConversation(savedChatId);
+            }
         }
     } catch (err) {
         console.error("Failed to load chat history:", err);
@@ -112,12 +124,18 @@ function renderHistoryList(chats) {
 
 function startNewChatSession() {
     currentChatId = null;
+    localStorage.removeItem(LAST_CHAT_KEY);
     activeChatTitle.textContent = "New Brew Conversation";
     messagesStream.innerHTML = "";
     welcomeHero.style.display = "block";
     messageInput.value = "";
     messageInput.style.height = "auto";
     messageInput.focus();
+
+    // Cancel any ongoing speech synthesis
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+    }
 
     // Remove active highlight from sidebar items
     document.querySelectorAll(".history-item").forEach(el => el.classList.remove("active"));
@@ -133,13 +151,15 @@ async function loadConversation(chatId) {
 
         if (res.ok && data.messages) {
             currentChatId = data.chat_id;
+            localStorage.setItem(LAST_CHAT_KEY, currentChatId);
             activeChatTitle.textContent = data.title;
             welcomeHero.style.display = "none";
             messagesStream.innerHTML = "";
 
-            // Render all historical messages
+            // Render all historical messages (including food/drink photos)
             data.messages.forEach(msg => {
-                appendMessageToUI(msg.role, msg.content);
+                const imgObj = msg.image_url ? { url: msg.image_url, title: msg.image_title } : null;
+                appendMessageToUI(msg.role, msg.content, false, imgObj);
             });
 
             // Mark item as active in sidebar
@@ -178,6 +198,11 @@ async function handleSendMessage() {
     const text = messageInput.value.trim();
     if (!text || isGeneratingResponse) return;
 
+    // Stop speech if speaking
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+    }
+
     // Hide welcome hero on first prompt
     welcomeHero.style.display = "none";
 
@@ -211,12 +236,14 @@ async function handleSendMessage() {
         if (res.ok) {
             // Update current chat ID if this was a new conversation
             currentChatId = data.chat_id;
+            localStorage.setItem(LAST_CHAT_KEY, currentChatId);
+
             if (data.title) {
                 activeChatTitle.textContent = data.title;
             }
 
-            // Display AI response on the left
-            appendMessageToUI("model", data.response, data.is_off_topic);
+            // Display AI response on the left (with food/drink image if matched)
+            appendMessageToUI("model", data.response, data.is_off_topic, data.image);
 
             // Refresh history sidebar to show new chat title
             fetchChatHistory();
@@ -244,7 +271,7 @@ function useSuggestedPrompt(promptText) {
 // 4. MESSAGE RENDERING (USER ON RIGHT, AI ON LEFT)
 // =============================================================================
 
-function appendMessageToUI(role, content, isOffTopic = false) {
+function appendMessageToUI(role, content, isOffTopic = false, imageInfo = null) {
     const isUser = role === "user";
     const msgRow = document.createElement("div");
     msgRow.className = `msg-row ${isUser ? "user" : "ai"}`;
@@ -261,6 +288,25 @@ function appendMessageToUI(role, content, isOffTopic = false) {
             formattedHtml = DOMPurify.sanitize(rawHtml);
         } else {
             formattedHtml = escapeHtml(content).replace(/\n/g, "<br>");
+        }
+
+        // Add Food & Beverage Visual Card if image is available
+        if (imageInfo && imageInfo.url) {
+            const badgeTag = imageInfo.tag || "Cafe Special";
+            const imgTitle = imageInfo.title || "Specialty Recipe";
+            const imageCardHtml = `
+                <div class="cafe-food-card">
+                    <div class="food-card-img-wrap">
+                        <img src="${escapeHtml(imageInfo.url)}" alt="${escapeHtml(imgTitle)}" class="food-card-img" loading="lazy" onerror="this.parentElement.parentElement.style.display='none'">
+                        <span class="food-card-badge">${escapeHtml(badgeTag)}</span>
+                    </div>
+                    <div class="food-card-info">
+                        <span class="food-card-title">${escapeHtml(imgTitle)}</span>
+                        <a href="${escapeHtml(imageInfo.url)}" target="_blank" rel="noopener noreferrer" class="food-card-zoom-btn">🔍 View Full Image</a>
+                    </div>
+                </div>
+            `;
+            formattedHtml = imageCardHtml + formattedHtml;
         }
 
         // Add special visual callout badge if strictly off-topic
@@ -280,16 +326,39 @@ function appendMessageToUI(role, content, isOffTopic = false) {
 
     const senderTag = isUser ? "You" : "Tea Lover AI";
 
+    // Build the Action Bar (Text-to-speech speaker button for AI)
+    let actionsBarHtml = "";
+    if (!isUser && !isOffTopic) {
+        actionsBarHtml = `
+            <div class="msg-actions-bar">
+                <button class="voice-listen-btn" title="Listen to response" data-speaking="false">
+                    🔊 Listen
+                </button>
+            </div>
+        `;
+    }
+
     msgRow.innerHTML = `
         ${!isUser ? avatarBadge : ""}
         <div class="msg-container">
             <span class="msg-sender-tag">${senderTag}</span>
             <div class="msg-bubble">
                 <div class="msg-body">${formattedHtml}</div>
+                ${actionsBarHtml}
             </div>
         </div>
         ${isUser ? avatarBadge : ""}
     `;
+
+    // Attach Text-to-Speech event to speaker button
+    if (!isUser && !isOffTopic) {
+        const listenBtn = msgRow.querySelector(".voice-listen-btn");
+        if (listenBtn) {
+            listenBtn.addEventListener("click", () => {
+                speakBaristaResponse(content, listenBtn);
+            });
+        }
+    }
 
     messagesStream.appendChild(msgRow);
     scrollToBottom();
@@ -389,13 +458,136 @@ function showTypingIndicator() {
 }
 
 // =============================================================================
-// 5. HELPER UTILITIES
+// 5. VOICE FEATURES (SPEECH-TO-TEXT & TEXT-TO-SPEECH)
+// =============================================================================
+
+function setupVoiceRecognition() {
+    if (!micBtn) return;
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        micBtn.title = "Voice recognition is not supported in this browser. Please use Chrome or Edge.";
+        micBtn.style.opacity = "0.5";
+        return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    let isListening = false;
+
+    recognition.onstart = () => {
+        isListening = true;
+        micBtn.classList.add("listening");
+        micBtn.title = "Listening... Click to stop";
+        messageInput.placeholder = "🎙️ Listening to your voice... Speak now";
+    };
+
+    recognition.onresult = (event) => {
+        let transcript = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            transcript += event.results[i][0].transcript;
+        }
+        messageInput.value = transcript;
+        handleAutoResize();
+    };
+
+    recognition.onerror = (event) => {
+        console.warn("Speech recognition error:", event.error);
+        stopListeningState();
+    };
+
+    recognition.onend = () => {
+        stopListeningState();
+        if (messageInput.value.trim().length > 0) {
+            // Auto send recorded message after speaking
+            handleSendMessage();
+        }
+    };
+
+    micBtn.addEventListener("click", () => {
+        if (isListening) {
+            recognition.stop();
+        } else {
+            try {
+                recognition.start();
+            } catch (err) {
+                console.error("Failed to start voice recognition:", err);
+            }
+        }
+    });
+
+    function stopListeningState() {
+        isListening = false;
+        micBtn.classList.remove("listening");
+        micBtn.title = "Speak your question";
+        messageInput.placeholder = "Ask about teas, coffee roasts, snacks, baking recipes...";
+    }
+}
+
+// Text-to-Speech (Barista Voice Reader)
+function speakBaristaResponse(text, btnElement) {
+    if (!('speechSynthesis' in window)) {
+        alert("Text-to-speech is not supported in your browser.");
+        return;
+    }
+
+    // If already speaking, stop and reset buttons
+    if (window.speechSynthesis.speaking) {
+        window.speechSynthesis.cancel();
+        document.querySelectorAll(".voice-listen-btn").forEach(b => {
+            b.classList.remove("speaking");
+            b.dataset.speaking = "false";
+            b.innerHTML = "🔊 Listen";
+        });
+
+        if (btnElement && btnElement.dataset.speaking === "true") {
+            btnElement.dataset.speaking = "false";
+            return;
+        }
+    }
+
+    // Clean markdown characters for smooth speech narration
+    const cleanText = text
+        .replace(/[#*_`~>-]/g, " ")
+        .replace(/\[(.*?)\]\(.*?\)/g, "$1")
+        .replace(/(\r\n|\n|\r)/gm, ". ")
+        .trim();
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.rate = 0.96; // warm, comfortable barista pace
+    utterance.pitch = 1.0;
+
+    btnElement.classList.add("speaking");
+    btnElement.dataset.speaking = "true";
+    btnElement.innerHTML = "⏹️ Stop";
+
+    utterance.onend = () => {
+        btnElement.classList.remove("speaking");
+        btnElement.dataset.speaking = "false";
+        btnElement.innerHTML = "🔊 Listen";
+    };
+
+    utterance.onerror = () => {
+        btnElement.classList.remove("speaking");
+        btnElement.dataset.speaking = "false";
+        btnElement.innerHTML = "🔊 Listen";
+    };
+
+    window.speechSynthesis.speak(utterance);
+}
+
+// =============================================================================
+// 6. HELPER UTILITIES
 // =============================================================================
 
 function setGeneratingState(generating) {
     isGeneratingResponse = generating;
     sendBtn.disabled = generating;
     messageInput.disabled = generating;
+    if (micBtn) micBtn.disabled = generating;
 }
 
 function handleAutoResize() {
@@ -415,6 +607,7 @@ function scrollToBottom() {
 }
 
 function escapeHtml(text) {
+    if (!text) return "";
     const div = document.createElement("div");
     div.textContent = text;
     return div.innerHTML;

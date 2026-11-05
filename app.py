@@ -75,10 +75,20 @@ def init_db():
             chat_id TEXT NOT NULL,
             role TEXT NOT NULL,
             content TEXT NOT NULL,
+            image_url TEXT,
+            image_title TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (chat_id) REFERENCES chats (id) ON DELETE CASCADE
         )
     """)
+
+    # Migration check: Ensure image_url and image_title exist in existing DB
+    cursor.execute("PRAGMA table_info(messages)")
+    columns = [row["name"] for row in cursor.fetchall()]
+    if "image_url" not in columns:
+        cursor.execute("ALTER TABLE messages ADD COLUMN image_url TEXT")
+    if "image_title" not in columns:
+        cursor.execute("ALTER TABLE messages ADD COLUMN image_title TEXT")
 
     conn.commit()
     conn.close()
@@ -86,6 +96,94 @@ def init_db():
 
 # Ensure tables exist when starting app
 init_db()
+
+
+# =============================================================================
+# 1B. CURATED CAFE & FOOD VISUAL IMAGERY
+# =============================================================================
+
+CAFE_IMAGE_MAP = [
+    {
+        "keywords": ["filter coffee", "south indian filter coffee", "kaapi", "decoction", "davarah"],
+        "title": "Authentic South Indian Filter Coffee",
+        "url": "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=800&q=80",
+        "tag": "Traditional Brew"
+    },
+    {
+        "keywords": ["masala tea", "masala chai", "spiced tea", "ginger tea", "adrak chai", "elaichi chai", "cardamom chai", "chai"],
+        "title": "Aromatic Spiced Masala Chai",
+        "url": "https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=800&q=80",
+        "tag": "Signature Chai"
+    },
+    {
+        "keywords": ["green tea", "matcha", "jasmine tea", "sencha", "chamomile", "herbal tea"],
+        "title": "Organic Zen Green Tea & Herbal Infusion",
+        "url": "https://images.unsplash.com/photo-1627435601361-ec25f5b1d0e5?auto=format&fit=crop&w=800&q=80",
+        "tag": "Healthy Brew"
+    },
+    {
+        "keywords": ["cappuccino", "latte", "flat white", "latte art", "macchiato", "cortado"],
+        "title": "Creamy Cappuccino with Artisanal Latte Art",
+        "url": "https://images.unsplash.com/photo-1534778101976-62847782c213?auto=format&fit=crop&w=800&q=80",
+        "tag": "Espresso Bar"
+    },
+    {
+        "keywords": ["espresso", "americano", "black coffee", "ristretto", "dark roast"],
+        "title": "Rich Crema Italian Espresso",
+        "url": "https://images.unsplash.com/photo-1510591509098-f4fdc6d0ff04?auto=format&fit=crop&w=800&q=80",
+        "tag": "Pure Roast"
+    },
+    {
+        "keywords": ["cold coffee", "cold brew", "iced latte", "frappe", "iced coffee"],
+        "title": "Chilled Creamy Cold Coffee & Cold Brew",
+        "url": "https://images.unsplash.com/photo-1517701604599-bb29b565090c?auto=format&fit=crop&w=800&q=80",
+        "tag": "Chilled Beverage"
+    },
+    {
+        "keywords": ["samosa", "samosas", "pakora", "pakoda", "vada", "kachori", "snack", "evening snack", "savory snack"],
+        "title": "Crispy Golden Samosas & Evening Cafe Snacks",
+        "url": "https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&w=800&q=80",
+        "tag": "Crispy Snack"
+    },
+    {
+        "keywords": ["croissant", "pastry", "pastries", "puff", "bakery", "muffin", "danish"],
+        "title": "Golden Flaky Butter Croissants & Bakery Delicacies",
+        "url": "https://images.unsplash.com/photo-1555507036-ab1f4038808a?auto=format&fit=crop&w=800&q=80",
+        "tag": "French Bakery"
+    },
+    {
+        "keywords": ["cookie", "cookies", "biscuit", "biscuits", "biscotti", "rusk"],
+        "title": "Crunchy Almond Biscotti & Freshly Baked Cookies",
+        "url": "https://images.unsplash.com/photo-1499636136210-6f4ee915583e?auto=format&fit=crop&w=800&q=80",
+        "tag": "Bakery Treats"
+    },
+    {
+        "keywords": ["cake", "cupcake", "brownie", "chocolate", "dessert", "desserts", "tiramisu", "sweet"],
+        "title": "Decadent Chocolate Fudge Cake & Cafe Desserts",
+        "url": "https://images.unsplash.com/photo-1578985545062-69928b1d9587?auto=format&fit=crop&w=800&q=80",
+        "tag": "Sweet Dessert"
+    },
+    {
+        "keywords": ["sandwich", "toast", "panini", "cheese sandwich", "grilled sandwich"],
+        "title": "Artisanal Toasted Cafe Panini Sandwich",
+        "url": "https://images.unsplash.com/photo-1528735602780-2552fd46c7af?auto=format&fit=crop&w=800&q=80",
+        "tag": "Gourmet Bites"
+    }
+]
+
+
+def get_relevant_image(text: str):
+    """Matches text against cafe image catalog to display relevant food/drink imagery."""
+    clean = text.lower()
+    for item in CAFE_IMAGE_MAP:
+        for kw in item["keywords"]:
+            if re.search(r"\b" + re.escape(kw) + r"\b", clean):
+                return {
+                    "title": item["title"],
+                    "url": item["url"],
+                    "tag": item["tag"]
+                }
+    return None
 
 
 # =============================================================================
@@ -306,14 +404,20 @@ def get_chat(chat_id):
         return jsonify({"error": "Conversation not found"}), 404
 
     cursor.execute(
-        "SELECT role, content, created_at FROM messages WHERE chat_id = ? ORDER BY id ASC",
+        "SELECT role, content, image_url, image_title, created_at FROM messages WHERE chat_id = ? ORDER BY id ASC",
         (chat_id,)
     )
     rows = cursor.fetchall()
     conn.close()
 
     messages = [
-        {"role": row["role"], "content": row["content"], "created_at": row["created_at"]}
+        {
+            "role": row["role"],
+            "content": row["content"],
+            "image_url": row["image_url"],
+            "image_title": row["image_title"],
+            "created_at": row["created_at"]
+        }
         for row in rows
     ]
     return jsonify({"chat_id": chat["id"], "title": chat["title"], "messages": messages})
@@ -418,10 +522,15 @@ def handle_chat_message():
     # Step D: Query Gemini AI
     ai_reply = query_gemini_with_fallback(conversation_context)
 
-    # Step E: Record AI reply in DB
+    # Step E: Detect if a relevant tea/coffee/snack image should be shown
+    matched_image = get_relevant_image(user_message + " " + ai_reply)
+    img_url = matched_image["url"] if matched_image else None
+    img_title = matched_image["title"] if matched_image else None
+
+    # Step F: Record AI reply in DB (with image if available)
     cursor.execute(
-        "INSERT INTO messages (chat_id, role, content) VALUES (?, 'model', ?)",
-        (chat_id, ai_reply)
+        "INSERT INTO messages (chat_id, role, content, image_url, image_title) VALUES (?, 'model', ?, ?, ?)",
+        (chat_id, ai_reply, img_url, img_title)
     )
     conn.commit()
 
@@ -435,7 +544,8 @@ def handle_chat_message():
         "response": ai_reply,
         "chat_id": chat_id,
         "title": current_title,
-        "is_off_topic": False
+        "is_off_topic": False,
+        "image": matched_image
     })
 
 
